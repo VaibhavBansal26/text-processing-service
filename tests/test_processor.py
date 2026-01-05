@@ -167,3 +167,18 @@ def test_concurrent_stream_updates_thread_safety():
         results = list(ex.map(run_one, range(200)))
 
     assert all(r == 2 for r in results)
+
+def test_very_long_word_across_chunks_counts_as_one_word():
+    p = TextStreamProcessor()
+    sid = p.create_stream()
+
+    long_word = "a" * 10000
+    p.add_chunk(sid, long_word[:5000])
+    # at this point word is buffered, not committed yet
+    stats1 = p.get_stats(sid)
+    assert stats1.word_count == 0
+
+    p.add_chunk(sid, long_word[5000:] + " ")
+    stats2 = p.get_stats(sid)
+    assert stats2.word_count == 1
+    assert stats2.unique_words == 1
