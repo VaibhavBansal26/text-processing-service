@@ -24,3 +24,25 @@ Create a token-bucket rate limiter that:
 * Supports different rate limits for different priority levels
 * Is thread-safe for concurrent access
 * Provides clear feedback when limits are exceeded
+
+Part 2: API Layer (Required)
+Build a REST API using FastAPI or Flask with these endpoints:
+POST /streams
+- Creates a new processing stream
+- Returns: stream_id
+POST /streams/{stream_id}/chunks
+- Adds a text chunk to the stream
+- Body: {"text": "chunk content", "priority": "normal|high"}
+- Returns: processing status
+GET /streams/{stream_id}/stats
+- Returns current statistics for the stream
+- Includes: word_count, unique_words, avg_word_length, flags
+DELETE /streams/{stream_id}
+- Closes and cleans up a stream
+  
+Part 3: Testing (Required)
+Provide comprehensive tests, including:
+* Unit tests for each component
+* Integration tests for the whole pipeline
+* Edge case handling (empty chunks, very long words, concurrent access)
+* Performance tests demonstrating the system can handle multiple concurrent streams
