@@ -132,6 +132,8 @@ In normal mode, all state is in memory.
 In persistence mode, state is mirrored to SQLite.
 In distributed mode, state is stored in Redis so multiple app instances can share streams.
 
+![3](https://res.cloudinary.com/vaibhav-codexpress/image/upload/v1767665358/Screenshot_2026-01-05_at_9.08.34_PM_kqzd9q.png)
+
 ## Trade offs and limitations
 
 ### Tokenization model limitations
@@ -175,6 +177,27 @@ What is not fully solved
 * If your estimator differs from actual committed words, the limiter can be slightly conservative or slightly permissive.
 * In distributed mode, atomicity is strong, but in fail_open mode, limiting is best effort.
 
+### Security limitations
+
+* The project assumes trusted clients for simplicity.
+* Production usage should add auth, request size limits, and more robust validation.
+* Redis credentials and TLS should be enforced in production environments.
+
+## Future improvements
+
+* More robust tokenizer options (unicode aware word boundaries)
+* Better chunk word accounting so the limiter uses committed words exactly
+* Redis health probes and circuit breakers at the API layer
+
+## Time spent on each section
+* Core implementation (processor, filter, rate limiter): 3 hours
+* Pipeline orchestration and API wiring: 2 hours
+* Persistence (SQLite) + recovery tests: 2 hours
+* Async processing mode + backpressure: 3 hours
+* Distributed mode (Redis) + Lua limiter: 3 hours
+* Debugging and making all tests pass: 2 hours
+* Documentation and polish: 1 hour
+
 
 
 ## Installation & Setup
@@ -197,10 +220,24 @@ pip install -r requirements.txt
 
 ```
 
-## Running Test Cases
+## Running Test Cases (Instructions)
 
 ```
 python -m pytest
+
+# Run tests in quiet mode
+
+python -m pytest -q
+
+# Show skipped reasons
+
+python -m pytest -q -rs
+
+# Run distributed mode tests (requires Redis)
+
+export DISTRIBUTED_MODE=1
+export REDIS_URL="redis://localhost:6379/0"
+python -m pytest tests/test_distributed_mode.py -q -rs
 
 ```
 
