@@ -2,9 +2,10 @@
 
 ## Demo Screenshots
 
-[1](https://res.cloudinary.com/vaibhav-codexpress/image/upload/v1767662673/Screenshot_2026-01-05_at_8.23.12_PM_tzqw3j.png)
+![1](https://res.cloudinary.com/vaibhav-codexpress/image/upload/v1767662673/Screenshot_2026-01-05_at_8.23.12_PM_tzqw3j.png)
 
-[2](https://res.cloudinary.com/vaibhav-codexpress/image/upload/v1767662673/Screenshot_2026-01-05_at_8.23.26_PM_qz9dpf.png)
+
+![2](https://res.cloudinary.com/vaibhav-codexpress/image/upload/v1767662673/Screenshot_2026-01-05_at_8.23.26_PM_qz9dpf.png)
 
 
 ## INSTRUCTIONS
@@ -100,18 +101,128 @@ Design for horizontal scaling:
 * Handle network partitions gracefully
 * Document deployment architecture
 
+## Overview
 
+This project is a small, test driven text processing service that supports streaming input and produces live statistics plus content flags. It is designed to run in a simple single process mode by default, and it can be extended into more advanced modes such as persistence, async processing, and distributed processing.
+
+Core outcomes per stream
+
+* word_count
+* unique_words
+* avg_word_length
+* content flags detected by rules
+* rate limiting with priority support
+
+Advanced options implemented
+
+* Persistence (SQLite) for restart recovery
+* Async processing mode for streaming and backpressure tests
+* Observability hooks (basic metrics and tracing middleware)
+* Distributed mode (Redis shared state and distributed rate limiting)
+
+## Architecture
+
+The pipeline is the orchestrator. It wires 3 responsibilities together.
+
+* Text Processor: boundary aware token accounting and word statistics
+* Content Filter: content scanning rules and flag storage
+* Rate limiter: token bucket limiting per stream and priority
+
+In normal mode, all state is in memory.
+In persistence mode, state is mirrored to SQLite.
+In distributed mode, state is stored in Redis so multiple app instances can share streams.
+
+## Trade offs and limitations
+
+### Tokenization model limitations
+
+* The word regex is intentionally simple.
+* It may not handle all languages and punctuation edge cases.
+* It treats apostrophes as part of tokens, which is good for contractions but can be surprising in some inputs.
+
+### Streaming boundary semantics
+
+* By design, a split word like “wor” then “ld” is not counted as “world” until a delimiter arrives or the stream closes.
+* This matches the idea of “completed tokens only”, but it can confuse users who expect immediate counts for partial words.
+
+### Persistence trade offs
+
+* SQLite persistence is easy and test friendly, but it is not ideal for high write throughput.
+* Frequent writes can cause lock contention and slowdowns under heavy concurrency.
+* Persistence currently focuses on correctness and restart recovery rather than optimal batching.
+
+### Distributed mode limitations
+
+* Redis is a single shared dependency.
+* If Redis is unavailable and partition_policy is fail_closed, the system becomes unavailable for distributed operations.
+* If partition_policy is fail_open or degraded, correctness guarantees degrade
+  * rate limiting becomes approximate
+  * state may diverge across instances temporarily
+
+### Network partition handling
+
+What is handled
+* Clear policy choices for what to do when Redis is unreachable.
+
+What is not fully solved
+* Automatic reconciliation of diverged state in fail_open mode.
+* Exactly once semantics across instance restarts.
+* Strong ordering guarantees for concurrent writes across instances.
+
+### Rate limiting semantics
+
+* Token bucket uses estimated words per chunk.
+* If your estimator differs from actual committed words, the limiter can be slightly conservative or slightly permissive.
+* In distributed mode, atomicity is strong, but in fail_open mode, limiting is best effort.
+
+
+
+## Installation & Setup
+
+```
+git clone
+
+cd text-processing-service
+
+# create python environment
+
+python -m venv .venv
+
+source .venv/bin/activate
+
+# install requirements
+
+pip install -r requirements.txt
+
+
+```
+
+## Running Test Cases
+
+```
+python -m pytest
+
+```
 
 ## Deployment
 
 ```
 docker compose --build
 
+# command to start the services
+
 docker compose up -d
 
-# command to stop the container
+# command to stop the services
 
 docker compose down -v
 
+
+```
+
+## Streamlit Application
+
+```
+https://localhost:8501
 
 ```
