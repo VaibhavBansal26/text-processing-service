@@ -1,3 +1,45 @@
 /.venv
 /src/__pycache__
 /tests/__pycache__
+/src/advance_features/__pycache__
+# data/*.db
+# data/*.sqlite
+# data/*.sqlite3
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# --- Virtualenvs ---
+.venv/
+venv/
+ENV/
+env/
+
+# --- OS / Editor ---
+.DS_Store
+.idea/
+.vscode/
+
+# --- App runtime data ---
+# data/
+# *.db
+# *.sqlite
+# *.sqlite3
+
+# --- Env files (keep .env.example committed) ---
+.env
+.env.*
+!.env.example
+
+

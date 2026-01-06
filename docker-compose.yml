@@ -1,0 +1,32 @@
+services:
+  redis:
+    platform: linux/amd64
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "no"]
+
+  api:
+    platform: linux/amd64
+    build:
+      context: .
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DISTRIBUTED_MODE: "1"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    command: ["python", "-m", "uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  streamlit:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    environment:
+      API_BASE_URL: http://api:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api

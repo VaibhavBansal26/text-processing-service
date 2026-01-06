@@ -4,7 +4,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from threading import RLock
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 
 @dataclass(frozen=True)
@@ -55,7 +55,6 @@ class RateLimiterConfig:
     high_tokens_per_minute: float = 5000.0
 
     # Burst capacity: max tokens bucket can hold.
-    # Defaults to 1 minute worth so a client can burst up to that.
     normal_burst: Optional[float] = None
     high_burst: Optional[float] = None
 
@@ -103,29 +102,77 @@ class TokenBucketRateLimiter:
         )
 
     def create_stream(self) -> str:
-        """
-        Create a new rate limit context for a stream.
-        """
         stream_id = str(uuid.uuid4())
-        now = time.monotonic()
-
-        with self._registry_lock:
-            self._streams[stream_id] = {
-                "normal": _TokenBucket(
-                    tokens=self._normal_cap,
-                    last_refill_ts=now,
-                    refill_rate_per_sec=self._normal_rate,
-                    capacity=self._normal_cap,
-                ),
-                "high": _TokenBucket(
-                    tokens=self._high_cap,
-                    last_refill_ts=now,
-                    refill_rate_per_sec=self._high_rate,
-                    capacity=self._high_cap,
-                ),
-            }
-
+        self.create_stream_with_id(stream_id)
         return stream_id
+
+    def create_stream_with_id(self, stream_id: str) -> str:
+        """
+        Create buckets using a caller-provided id (persistence restore).
+        """
+        now = time.monotonic()
+        with self._registry_lock:
+            if stream_id not in self._streams:
+                self._streams[stream_id] = {
+                    "normal": _TokenBucket(
+                        tokens=self._normal_cap,
+                        last_refill_ts=now,
+                        refill_rate_per_sec=self._normal_rate,
+                        capacity=self._normal_cap,
+                    ),
+                    "high": _TokenBucket(
+                        tokens=self._high_cap,
+                        last_refill_ts=now,
+                        refill_rate_per_sec=self._high_rate,
+                        capacity=self._high_cap,
+                    ),
+                }
+        return stream_id
+
+    def export_state(self, stream_id: str) -> Dict[str, Any]:
+        """
+        Export JSON-serializable bucket state.
+
+        We persist token counts. We do NOT persist monotonic timestamps.
+        On restore we set last_refill_ts to current time.monotonic() so downtime
+        does not "mint" tokens (safe behavior).
+        """
+        buckets = self._get_stream_buckets(stream_id)
+        out: Dict[str, Any] = {"buckets": {}}
+
+        for priority, bucket in buckets.items():
+            with bucket.lock:
+                out["buckets"][priority] = {
+                    "tokens": float(bucket.tokens),
+                    "capacity": float(bucket.capacity),
+                    "refill_rate_per_sec": float(bucket.refill_rate_per_sec),
+                }
+
+        return out
+
+    def import_state(self, stream_id: str, data: Dict[str, Any]) -> None:
+        """
+        Restore bucket tokens from persistence.
+        """
+        self.create_stream_with_id(stream_id)
+        buckets = self._get_stream_buckets(stream_id)
+
+        raw = data.get("buckets", {})
+        if not isinstance(raw, dict):
+            return
+
+        now = time.monotonic()
+        for priority, payload in raw.items():
+            if priority not in buckets:
+                continue
+            if not isinstance(payload, dict):
+                continue
+
+            bucket = buckets[priority]
+            with bucket.lock:
+                bucket.tokens = float(payload.get("tokens", bucket.tokens))
+                bucket.tokens = max(0.0, min(bucket.capacity, bucket.tokens))
+                bucket.last_refill_ts = now
 
     def delete_stream(self, stream_id: str) -> None:
         with self._registry_lock:
@@ -134,16 +181,12 @@ class TokenBucketRateLimiter:
     def check_and_consume(self, stream_id: str, words: int, priority: str = "normal") -> RateLimitResult:
         """
         Attempt to consume `words` tokens from stream bucket.
-
-        words: number of tokens to consume (1 token = 1 word)
-        priority: "normal" or "high"
         """
         if words <= 0:
             return RateLimitResult(allowed=True, remaining_tokens=0.0, message="No tokens needed.")
 
         buckets = self._get_stream_buckets(stream_id)
         if priority not in buckets:
-            # Treat unknown priority as normal (safe default)
             priority = "normal"
 
         bucket = buckets[priority]
@@ -159,12 +202,8 @@ class TokenBucketRateLimiter:
                     message="Allowed.",
                 )
 
-            # Not enough tokens -> compute retry-after based on refill rate
             needed = float(words) - bucket.tokens
-            if bucket.refill_rate_per_sec <= 0:
-                retry_after = 60.0  # fallback
-            else:
-                retry_after = needed / bucket.refill_rate_per_sec
+            retry_after = needed / bucket.refill_rate_per_sec if bucket.refill_rate_per_sec > 0 else 60.0
 
             return RateLimitResult(
                 allowed=False,
@@ -173,7 +212,7 @@ class TokenBucketRateLimiter:
                 message="Rate limit exceeded.",
             )
 
-    # ---------------- internal helpers ----------------
+    # ---------------- helpers ----------------
 
     def _get_stream_buckets(self, stream_id: str) -> Dict[str, _TokenBucket]:
         with self._registry_lock:

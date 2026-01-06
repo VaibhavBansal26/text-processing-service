@@ -5,3 +5,7 @@ pytest
 httpx
 prometheus-client
 streamlit
+redis
+anyio
+pytest-asyncio
+pytest-env

@@ -116,15 +116,6 @@ def test_stream_closed_error_has_metadata_and_blocks_writes():
     with pytest.raises(StreamNotFoundError):
         p.add_chunk(sid, "world ")
 
-    # If you later change behavior to keep closed streams in registry,
-    # replace the above with:
-    #
-    # with pytest.raises(StreamClosedError) as exc:
-    #     p.add_chunk(sid, "world ")
-    # e = exc.value
-    # assert e.code == "STREAM_CLOSED"
-    # assert e.http_status == 409
-    # assert e.to_dict()["error"]["stream_id"] == sid
 
 
 def test_multiple_streams_are_isolated():

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import re
+import uuid
 from dataclasses import dataclass, field
 from threading import RLock
-from typing import Dict, List, Optional, Pattern, Tuple
+from typing import Any, Dict, List, Optional, Pattern, Tuple
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,23 @@ class ContentFlag:
     match: str
     confidence: float
     rule_type: str  # "word" or "regex"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "rule_id": self.rule_id,
+            "match": self.match,
+            "confidence": float(self.confidence),
+            "rule_type": self.rule_type,
+        }
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> "ContentFlag":
+        return ContentFlag(
+            rule_id=str(d.get("rule_id", "")),
+            match=str(d.get("match", "")),
+            confidence=float(d.get("confidence", 0.0)),
+            rule_type=str(d.get("rule_type", "")),
+        )
 
 
 @dataclass(frozen=True)
@@ -97,12 +115,58 @@ class ContentFilter:
             self._word_list = dict(self._config.word_list)
 
     def create_stream(self) -> str:
-        import uuid
-
         stream_id = str(uuid.uuid4())
         with self._registry_lock:
             self._streams[stream_id] = _FilterState()
         return stream_id
+
+    def create_stream_with_id(self, stream_id: str) -> str:
+        """
+        Create a stream using a caller provided id (used for persistence restore).
+        """
+        with self._registry_lock:
+            if stream_id not in self._streams:
+                self._streams[stream_id] = _FilterState()
+        return stream_id
+
+    def export_state(self, stream_id: str) -> Dict[str, Any]:
+        """
+        Export JSON serializable state for persistence.
+        """
+        state = self._get_state(stream_id)
+        with state.lock:
+            return {
+                "tail": state.tail,
+                "flags": [f.to_dict() for f in state.flags],
+                "seen": [list(x) for x in state.seen],
+                "closed": state.closed,
+            }
+
+    def import_state(self, stream_id: str, data: Dict[str, Any]) -> None:
+        """
+        Restore state from persistence.
+        """
+        self.create_stream_with_id(stream_id)
+        state = self._get_state(stream_id)
+
+        with state.lock:
+            state.tail = str(data.get("tail", ""))
+
+            raw_flags = data.get("flags", [])
+            if isinstance(raw_flags, list):
+                state.flags = [ContentFlag.from_dict(x) for x in raw_flags if isinstance(x, dict)]
+            else:
+                state.flags = []
+
+            raw_seen = data.get("seen", [])
+            seen_set: set[Tuple[str, str]] = set()
+            if isinstance(raw_seen, list):
+                for item in raw_seen:
+                    if isinstance(item, (list, tuple)) and len(item) == 2:
+                        seen_set.add((str(item[0]), str(item[1])))
+            state.seen = seen_set
+
+            state.closed = bool(data.get("closed", False))
 
     def close_stream(self, stream_id: str) -> None:
         state = self._get_state(stream_id)
@@ -165,7 +229,7 @@ class ContentFilter:
     def _scan_word_list(self, state: _FilterState, text: str) -> List[ContentFlag]:
         """
         Word list scanning.
-        This uses word tokenization instead of substring matching to avoid false positives.
+        Uses word tokenization instead of substring matching to avoid false positives.
         """
         matches = self._WORD_RE.findall(text)
         found: List[ContentFlag] = []
